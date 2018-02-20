@@ -164,7 +164,6 @@ users:
         client-id: '%s'
         client-secret: '%s'
         id-token: '%s'
-        idp-certificate-authority: REPLACE_WITH_CA
         idp-issuer-url: '%s'
         refresh-token: '%s'
       name: oidc
