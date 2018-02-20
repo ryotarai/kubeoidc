@@ -148,8 +148,7 @@ func (s *server) _handleCallback(w http.ResponseWriter, r *http.Request) error {
 	log.Printf("%s", c)
 
 	var claims struct {
-		RefreshToken string `json:"refresh_token"`
-		Email        string `json:"email"`
+		Email string `json:"email"`
 	}
 	if err := idToken.Claims(&claims); err != nil {
 		return err
@@ -169,7 +168,7 @@ users:
         idp-issuer-url: '%s'
         refresh-token: '%s'
       name: oidc
-`, claims.Email, s.clientID, s.clientSecret, rawIDToken, s.issuerURL, claims.RefreshToken)
+`, claims.Email, s.clientID, s.clientSecret, rawIDToken, s.issuerURL, oauth2Token.RefreshToken)
 
 	w.WriteHeader(200)
 	fmt.Fprint(w, "Done. Please go back to the terminal.\n")
