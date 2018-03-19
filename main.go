@@ -17,6 +17,7 @@ import (
 	"golang.org/x/oauth2"
 )
 
+var version = "1.0.0"
 var alphabet = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
 func init() {
@@ -27,7 +28,13 @@ func main() {
 	var issuerURL = flag.String("issuer", "", "Issuer URL")
 	var clientID = flag.String("client-id", "", "Client ID")
 	var clientSecret = flag.String("client-secret", "", "Client Secret")
+	var versionMode = flag.Bool("version", false, "Show version")
 	flag.Parse()
+
+	if *versionMode {
+		fmt.Printf("kubeoidc v%s\n", version)
+		return
+	}
 
 	port, err := freeport.GetFreePort()
 	if err != nil {
