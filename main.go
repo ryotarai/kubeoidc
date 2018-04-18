@@ -60,7 +60,9 @@ func main() {
 		log.Fatal(http.ListenAndServe(listen, nil))
 	}()
 
-	open.Start(server.authURL())
+	url := server.authURL()
+	fmt.Printf("INFO: Opening %s", url)
+	open.Start(url)
 	server.wait()
 }
 
