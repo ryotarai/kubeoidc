@@ -9,6 +9,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"os/exec"
 	"time"
 
 	"github.com/coreos/go-oidc"
@@ -17,7 +18,7 @@ import (
 	"golang.org/x/oauth2"
 )
 
-var version = "1.0.0"
+var version = "1.1.0"
 var alphabet = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
 func init() {
@@ -28,6 +29,7 @@ func main() {
 	var issuerURL = flag.String("issuer", "", "Issuer URL")
 	var clientID = flag.String("client-id", "", "Client ID")
 	var clientSecret = flag.String("client-secret", "", "Client Secret")
+	var credentialName = flag.String("set-credentials", "", "If name of credentials is set, kubeoidc configures credentials by executing kubectl")
 	var versionMode = flag.Bool("version", false, "Show version")
 	flag.Parse()
 
@@ -46,6 +48,7 @@ func main() {
 		*clientID,
 		*clientSecret,
 		fmt.Sprintf("http://localhost:%d/callback", port),
+		*credentialName,
 	)
 
 	if err != nil {
@@ -61,7 +64,7 @@ func main() {
 	}()
 
 	url := server.authURL()
-	fmt.Printf("INFO: Opening %s", url)
+	log.Printf("INFO: Opening %s", url)
 	open.Start(url)
 	server.wait()
 }
@@ -72,11 +75,12 @@ type server struct {
 	verifier *oidc.IDTokenVerifier
 	waitCh   chan struct{}
 
-	issuerURL    string
-	clientID     string
-	clientSecret string
-	redirectURL  string
-	state        string
+	issuerURL      string
+	clientID       string
+	clientSecret   string
+	redirectURL    string
+	state          string
+	credentialName string
 }
 
 func newState() string {
@@ -87,7 +91,7 @@ func newState() string {
 	return string(b)
 }
 
-func newServer(issuerURL, clientID, clientSecret, redirectURL string) (*server, error) {
+func newServer(issuerURL, clientID, clientSecret, redirectURL, credentialName string) (*server, error) {
 	ctx := context.Background()
 	provider, err := oidc.NewProvider(ctx, issuerURL)
 	if err != nil {
@@ -105,15 +109,16 @@ func newServer(issuerURL, clientID, clientSecret, redirectURL string) (*server, 
 	idTokenVerifier := provider.Verifier(&oidc.Config{ClientID: clientID})
 
 	return &server{
-		provider:     provider,
-		oauth2:       oauth2Config,
-		verifier:     idTokenVerifier,
-		issuerURL:    issuerURL,
-		clientID:     clientID,
-		clientSecret: clientSecret,
-		redirectURL:  redirectURL,
-		state:        newState(),
-		waitCh:       make(chan struct{}),
+		provider:       provider,
+		oauth2:         oauth2Config,
+		verifier:       idTokenVerifier,
+		issuerURL:      issuerURL,
+		clientID:       clientID,
+		clientSecret:   clientSecret,
+		redirectURL:    redirectURL,
+		credentialName: credentialName,
+		state:          newState(),
+		waitCh:         make(chan struct{}),
 	}, nil
 }
 
@@ -163,7 +168,8 @@ func (s *server) _handleCallback(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	fmt.Printf(`---
+	if s.credentialName == "" {
+		fmt.Printf(`---
 # Add the following to ~/.kube/config
 users:
 - name: '%s'
@@ -177,6 +183,20 @@ users:
         refresh-token: '%s'
       name: oidc
 `, claims.Email, s.clientID, s.clientSecret, rawIDToken, s.issuerURL, oauth2Token.RefreshToken)
+	} else {
+		err := exec.Command("kubectl", "config", "set-credentials", s.credentialName,
+			"--auth-provider=oidc",
+			fmt.Sprintf("--auth-provider-arg=client-id=%s", s.clientID),
+			fmt.Sprintf("--auth-provider-arg=client-secret=%s", s.clientSecret),
+			fmt.Sprintf("--auth-provider-arg=id-token=%s", rawIDToken),
+			fmt.Sprintf("--auth-provider-arg=idp-issuer-url=%s", s.issuerURL),
+			fmt.Sprintf("--auth-provider-arg=refresh-token=%s", oauth2Token.RefreshToken),
+		).Run()
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("Executed `kubectl config set-credentials %s ...`", s.credentialName)
+	}
 
 	w.WriteHeader(200)
 	fmt.Fprint(w, "Done. Please go back to the terminal.\n")
