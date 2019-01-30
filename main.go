@@ -10,6 +10,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/coreos/go-oidc"
@@ -74,6 +75,7 @@ type server struct {
 	provider *oidc.Provider
 	verifier *oidc.IDTokenVerifier
 	waitCh   chan struct{}
+	isGoogle bool
 
 	issuerURL      string
 	clientID       string
@@ -97,13 +99,22 @@ func newServer(issuerURL, clientID, clientSecret, redirectURL, credentialName st
 	if err != nil {
 		return nil, err
 	}
+	isGoogle := strings.Index(issuerURL, "https://accounts.google.com") == 0
+	scopes := []string{oidc.ScopeOpenID, "profile", "email"}
 
+	// google does not tolerate "groups" or "offline_access"
+	// they have their own peoplev1 specific scopes for obtaining groups
+	// and the offline_access needs to be a separate query param
+	// https://developers.google.com/identity/protocols/OpenIDConnect#scope-param
+	if !isGoogle {
+		scopes = append(scopes, "groups", "offline_access")
+	}
 	oauth2Config := oauth2.Config{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
 		RedirectURL:  redirectURL,
 		Endpoint:     provider.Endpoint(),
-		Scopes:       []string{oidc.ScopeOpenID, "profile", "email", "groups", "offline_access"},
+		Scopes:       scopes,
 	}
 
 	idTokenVerifier := provider.Verifier(&oidc.Config{ClientID: clientID})
@@ -112,6 +123,7 @@ func newServer(issuerURL, clientID, clientSecret, redirectURL, credentialName st
 		provider:       provider,
 		oauth2:         oauth2Config,
 		verifier:       idTokenVerifier,
+		isGoogle:       isGoogle,
 		issuerURL:      issuerURL,
 		clientID:       clientID,
 		clientSecret:   clientSecret,
@@ -123,7 +135,11 @@ func newServer(issuerURL, clientID, clientSecret, redirectURL, credentialName st
 }
 
 func (s *server) authURL() string {
-	return s.oauth2.AuthCodeURL(s.state)
+	opts := make([]oauth2.AuthCodeOption, 0)
+	if s.isGoogle {
+		opts = append(opts, oauth2.AccessTypeOffline)
+	}
+	return s.oauth2.AuthCodeURL(s.state, opts...)
 }
 
 func (s *server) handleCallback(w http.ResponseWriter, r *http.Request) {
